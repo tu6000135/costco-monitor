@@ -143,3 +143,6 @@ def check_costco_appointments():
 
 if __name__ == "__main__":
     check_costco_appointments()
+if __name__ == "__main__":
+    send_teams_notification("これはテスト通知です。Teams連携は正常に動作しています。", title="テスト通信成功")
+    # check_costco_appointments()
