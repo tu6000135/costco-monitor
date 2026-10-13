@@ -10,11 +10,12 @@ TEAMS_WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK_URL")
 LOCATION_URL = "https://waitwhile.com/locations/costcotire-00515"
 
 def send_teams_notification(message: str, title: str = "Costco タイヤ予約の空きを発見しました！"):
-    """Teams Webhook 経由でアダプティブカード通知を送信"""
+    """Power Automate / Teams ワークフロー互換形式で通知を送信"""
     if not TEAMS_WEBHOOK_URL:
         print("[ERROR] TEAMS_WEBHOOK_URL が設定されていません。")
         return
 
+    # Power Automate ワークフロー標準互換フォーマット (Adaptive Card v1.2 + https schema)
     payload = {
         "type": "message",
         "attachments": [
@@ -22,9 +23,9 @@ def send_teams_notification(message: str, title: str = "Costco タイヤ予約�
                 "contentType": "application/vnd.microsoft.card.adaptive",
                 "contentUrl": None,
                 "content": {
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "$schema": "https://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard",
-                    "version": "1.4",
+                    "version": "1.2",
                     "body": [
                         {
                             "type": "TextBlock",
@@ -68,16 +69,29 @@ def send_teams_notification(message: str, title: str = "Costco タイヤ予約�
 
     try:
         with urllib.request.urlopen(req) as response:
-            print(f"[SUCCESS] Teams通知送信完了 (Status: {response.status})")
+            print(f"[SUCCESS] Teams/Power Automate 通知送信完了 (Status: {response.status})")
     except Exception as e:
-        print(f"[ERROR] Teams通知送信失敗: {e}")
+        print(f"[WARNING] アダプティブカード送信失敗: {e}。シンプルテキスト形式で再試行します...")
+        # カード形式で拒否された場合のシンプルテキスト送信フォールバック
+        simple_payload = {
+            "text": f"**{title}**\n\n{message}\n\n[予約画面を開く]({LOCATION_URL})"
+        }
+        try:
+            req_simple = urllib.request.Request(
+                TEAMS_WEBHOOK_URL,
+                data=json.dumps(simple_payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req_simple) as resp_simple:
+                print(f"[SUCCESS] テキスト通知送信完了 (Status: {resp_simple.status})")
+        except Exception as ex:
+            print(f"[ERROR] Teams通知送信失敗: {ex}")
 
 def check_costco_appointments():
     print("=== Costco Tire 予約巡回チェック開始 ===")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # 言語を英語に固定し、画面解像度を設定
         context = browser.new_context(
             locale="en-US",
             viewport={"width": 1280, "height": 800},
@@ -87,12 +101,10 @@ def check_costco_appointments():
         page = context.new_page()
 
         try:
-            # 1. 店舗の予約トップページへアクセス
             print(f"[1/3] 店舗トップページへアクセス中: {LOCATION_URL}")
             page.goto(LOCATION_URL, wait_until="networkidle", timeout=60000)
             page.wait_for_timeout(3000)
 
-            # 2. 作業メニュー「Seasonal Exchange 4 Wheels/8 Tires」を自動クリック
             print("[2/3] 作業メニュー（Seasonal Exchange 4 Wheels/8 Tires）を選択中...")
             service_button = page.locator("text=/Seasonal Exchange|Changement de pneus/i").first
             
@@ -103,16 +115,13 @@ def check_costco_appointments():
             else:
                 print("   [WARNING] 指定の作業メニューボタンが画面上に見つかりませんでした。")
 
-            # 3. 日時選択画面での空き枠判定
             print("[3/3] カレンダー・空き枠の解析中...")
             content = page.content().lower()
 
-            # サービス未選択エラーが発生していないか確認
             if "must have at least 1 service assigned" in content:
                 print("[ERROR] サービスの自動選択に失敗しました。次回再試行します。")
                 return
 
-            # 「空きなし」を示すキーワード（英語・フランス語両対応）
             no_slots_keywords = [
                 "no appointments available",
                 "no available dates",
@@ -143,6 +152,4 @@ def check_costco_appointments():
 
 if __name__ == "__main__":
     check_costco_appointments()
-if __name__ == "__main__":
-    send_teams_notification("これはテスト通知です。Teams連携は正常に動作しています。", title="テスト通信成功")
-    # check_costco_appointments()
+    send_teams_notification("テスト通知です。Power Automate連携が成功しました！")
